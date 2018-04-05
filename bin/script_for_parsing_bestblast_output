@@ -1,0 +1,85 @@
+clusterblast -f seqs -d Mouse_and_Rat_aa -b blastx -B -a '-num_alignments 20 -num_descriptions 20' -p 2 -W
+clusterblast -f seqs -d Mus_musculus_aa -b blastx -B -a '-num_alignments 20 -num_descriptions 20' -p 2 -W
+bs -J bestBP bestblastparse.pl -f Mouse_blast -b blastx -n 1 -d -o mouse_bestblast.tab
+cat mouse_bestblast.tab | cut -f 8 | cut -f 2 -d '|' | sed 's/\.[0-9]//' > mouse_gids_01.txt
+#
+clusterblast -f seqs -d Rattus_norvegicus_aa -b blastx -B -a '-num_alignments 20 -num_descriptions 20' -p 2 -W
+bs -J bestBP bestblastparse.pl -f Rat_blast -b blastx -n 1 -d -o rat_bestblast.tab
+cat rat_bestblast.tab | cut -f 8 | cut -f 2 -d '|' | sed 's/\.[0-9]//' > rat_gids_01.txt
+# redo mouse bestblast, but output a line for every transcript
+# this will allow me to collect all the transcripts that didn't hit a mouse protein
+# to do a broader search
+bs -J bestBP bestblastparse.pl -l -f Mouse_blast -b blastx -n 1 -d -o mouse_bestblast_all.tab
+cat mouse_bestblast.tab | cut -f 8 | cut -f 2 -d '|' | sed 's/\.[0-9]//' > mouse_gids_01.txt
+cat mouse_bestblast_all.tab | awk --lint -F '[\t]' ' { if ( NF == 2 ) { print $2; } } ' | cut -f 1 -d ' ' > mouse_nohits_gids.txt 
+bs -J seqret seqret -outseq ID_nohits_seqs.fa -filter @mouse_nohits_gids_forseqret.txt
+#
+# redo mouse bestblast using the new "tile" statistics, which will provide a better 
+# representatoin of true subj coverage
+bs -J bestBP bestblastparse.pl -l -f Mouse_blast -b blastx -n 1 -d -t -o mouse_bestblast_all_tilestats.tab
+head -n 25 mouse_bestblast_all_tilestats.tab | sed s/.blastx// | cut -f 1,12,23 | vim -
+cat mouse_bestblast_all.tab | awk --lint -F '[\t]' ' { if ( $23 >= 40 ) { print $0; } } ' | cut -f 1 -d ' ' > mouse_mapids_gids.txt 
+
+head -n 25 mouse_bestblast_all_tilestats.tab | awk --lint -F '\t' '{ if (NF == 23 && $23 > 40) { print $23; } }'
+head -n 25 mouse_bestblast_all_tilestats.tab | awk --lint -F '\t' '{ if (NF == 19 && $12 > 40) { print $12; } }'
+cat mouse_bestblast_all_tilestats.tab | awk --lint -F '\t' '{ if ((NF == 19 && $12 >= 40) || (NF == 23 && $23 >= 40)) { print $1"\t"$8; } }' > mouse_mapids_gids_firstcut.txt
+#
+# collect sequences that don't pass that coverage filter (a hit must cover >=40% of the full-length subj sequence)
+cat mouse_bestblast_all_tilestats.tab | awk --lint -F '\t' '{ if ((NF == 19 && $12 < 40) || (NF == 23 && $23 < 40)) { print $2; } }' | cut -f 1 -d ' ' > mouse_mapids_gids_firstcut_fail.txt
+cat mouse_bestblast_all_tilestats.tab | awk --lint -F '[\t]' ' { if ( NF == 2 ) { print $2; } } ' | cut -f 1 -d ' ' >> mouse_mapids_gids_firstcut_fail.txt
+cat mouse_mapids_gids_firstcut_fail.txt | sed 's/TRINITY/transcript.assembly.fa:TRINITY/' > mouse_mapids_gids_firstcut_fail_forseqed.txt
+bs -J seqret seqret -outseq ID_fails_seqs.fa -filter @mouse_mapids_gids_firstcut_fail_forseqed.txt
+mkdir Firstfails_v_Rodentia 
+clusterblast -f seqs -d Rodentia -b blastx -B -a "-num_alignments 25 -num_descriptions 25" -p 2 -Q -W -c 1000
+bs -J bestBP bestblastparse.pl -l -f Firstfails_v_Rodentia -b blastx -n 1 -d -t -o mouse_bestblast_firstfails_tilestats.tab
+cat mouse_bestblast_firstfails_tilestats.tab | awk --lint -F '\t' '{ if ((NF == 19 && $12 >= 40) || (NF == 23 && $23 >= 40)) { print $1"\t"$8; } }' > mouse_mapids_gids_secondcut.txt
+cat mouse_mapids_gids_firstcut.txt | cut -f 2 | cut -f 2 -d '|' | cut -f 1 -d '.' | sed 's/Description/ACCNUM/' | paste mouse_mapids_gids_firstcut.txt - > mouse_mapids_gids_firstcut_accnum.txt
+#
+# do similar with second cut genes
+grep '\[Mus musculus\]' mouse_mapids_gids_secondcut.txt > mouse_mapids_gids_secondcut_Mus.txt
+cat mouse_mapids_gids_secondcut_Mus.txt | cut -f 2 | cut -f 2 -d '|' | cut -f 1 -d '.' | sed 's/Description/ACCNUM/' | paste mouse_mapids_gids_secondcut_Mus.txt - > mouse_mapids_gids_secondcut_Mus_accnum.txt
+#
+grep '\[Rattus norvegicus\]' mouse_mapids_gids_secondcut.txt > mouse_mapids_gids_secondcut_Rattus.txt
+cat mouse_mapids_gids_secondcut_Rattus.txt | cut -f 2 | cut -f 2 -d '|' | cut -f 1 -d '.' | sed 's/Description/ACCNUM/' | paste mouse_mapids_gids_secondcut_Rattus.txt - > mouse_mapids_gids_secondcut_Rattus_accnum.txt
+#
+# search vs nr now
+cat mouse_bestblast_all_tilestats.tab | awk --lint -F '\t' '{ if ((NF == 19 && $12 < 40) || (NF == 23 && $23 < 40)) { print $2; } }' | cut -f 1 -d ' ' > mouse_mapids_gids_firstcut_fail.txt
+cat mouse_bestblast_all_tilestats.tab | awk --lint -F '[\t]' ' { if ( NF == 2 ) { print $2; } } ' | cut -f 1 -d ' ' >> mouse_mapids_gids_firstcut_fail.txt
+#
+bs -J bbprse bestblastparse.pl -f Secondfails_v_nr -o secondfails_bestblast_tilestats.tab -t -l -b blastx -n 1 -d 
+cat secondfails_bestblast_tilestats.tab | awk --lint -F '\t' '{ if ((NF == 19 && $12 >= 40) || (NF == 23 && $23 >= 40)) { print $1"\t"$8; } }' > secondfails_mapids_gids.txt
+cat secondfails_mapids_gids.txt | cut -f 2 | cut -f 2 -d '|' | cut -f 1 -d '.' | sed 's/Description/ACCNUM/' | paste secondfails_mapids_gids.txt - > secondfails_mapids_gids_accnum.txt
+cat secondfails_mapids_gids.txt | grep -v 'pdb|' | sed -E 's/.+\[//' | sed 's/\]//' | sort | uniq -c | sort -k 1 -g
+      1 Acinonyx jubatus
+      1 Aotus nancymaae
+      1 Bubalus bubalis
+      1 Castor canadensis
+      1 Chlamydia
+      1 Chlamydia abortus
+      1 Chlamydotis macqueenii
+      1 Dasypus novemcinctus
+      1 Equus przewalskii
+      1 File	Description
+      1 Gibbon ape leukemia virus
+      1 Human ORFeome Gateway entry vector
+      1 Leptonychotes weddellii
+      1 Manacus vitellinus
+      1 Mus musculus
+      1 Mus pahari
+      1 Myotis brandtii
+      1 Myotis davidii
+      1 Neotoma lepida
+      1 Panthera tigris altaica
+      1 Physeter catodon
+      1 Rattus rattus
+      1 Taeniopygia guttata
+      2 Meriones unguiculatus
+      2 Mesocricetus auratus
+      3 Cervus elaphus hippelaphus
+      3 Tursiops truncatus
+      7 Homo sapiens
+     16 Cricetulus griseus
+
+grep Cricetulus secondfails_mapids_gids.txt 
+grep TRINITY_DN272376_c0_g1_i1 DE_results.txt >> ../DE_firstcut_secondcut_thirdcut_annot.txt 
+grep TRINITY_DN272376_c0_g1_i1 secondfails_mapids_gids.txt | cut -f 2,3 | sed -E 's/.+\|(.+?)\| /\1\t/' >> ../DE_firstcut_secondcut_thirdcut_annot.txt 
